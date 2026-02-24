@@ -10,7 +10,7 @@ export default async function SmartTestPage() {
   const [
     { data: modules },
     { data: mcqs },
-    { data: flashcards },
+    { data: writtenQuestions },
     { data: testSessions },
     { data: weakTopics },
   ] = await Promise.all([
@@ -23,9 +23,9 @@ export default async function SmartTestPage() {
       .select("*, lectures(id, title, subject_id)")
       .order("created_at"),
     supabase
-      .from("flashcards")
+      .from("written_questions")
       .select("*, lectures(id, title, subject_id)")
-      .order("order_index"),
+      .order("created_at"),
     supabase
       .from("test_sessions")
       .select("*")
@@ -42,7 +42,7 @@ export default async function SmartTestPage() {
     <SmartTestContent
       modules={modules ?? []}
       mcqs={mcqs ?? []}
-      flashcards={flashcards ?? []}
+      writtenQuestions={writtenQuestions ?? []}
       testHistory={testSessions ?? []}
       weakTopics={weakTopics ?? []}
       userId={user!.id}

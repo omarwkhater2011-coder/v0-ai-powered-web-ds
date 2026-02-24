@@ -1,11 +1,26 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { FileText, Sparkles, Loader2, Highlighter, Save, BookOpen } from "lucide-react"
+import {
+  FileText,
+  Sparkles,
+  Loader2,
+  Highlighter,
+  Save,
+  BookOpen,
+  Plus,
+  Bold,
+  Heading1,
+  Heading2,
+  Type,
+  X,
+  PenLine,
+} from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
+import { Separator } from "@/components/ui/separator"
 import { createClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
 
@@ -29,6 +44,14 @@ interface Annotation {
   createdAt: string
 }
 
+interface OwnNoteBlock {
+  id: string
+  type: "heading1" | "heading2" | "paragraph"
+  text: string
+  bold?: boolean
+  highlight?: boolean
+}
+
 const HIGHLIGHT_COLORS = [
   { name: "Yellow", value: "bg-yellow-200/60 dark:bg-yellow-500/30" },
   { name: "Green", value: "bg-emerald-200/60 dark:bg-emerald-500/30" },
@@ -37,7 +60,6 @@ const HIGHLIGHT_COLORS = [
 ]
 
 export function NotesTab({ notes, lectureId, userId }: NotesTabProps) {
-  const [userNote, setUserNote] = useState("")
   const [aiOutput, setAiOutput] = useState("")
   const [aiLoading, setAiLoading] = useState(false)
   const [aiAction, setAiAction] = useState<string | null>(null)
@@ -49,6 +71,14 @@ export function NotesTab({ notes, lectureId, userId }: NotesTabProps) {
   const [annotationText, setAnnotationText] = useState("")
   const [saving, setSaving] = useState(false)
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null)
+
+  // Own notes editor state
+  const [showOwnNotes, setShowOwnNotes] = useState(false)
+  const [ownNoteBlocks, setOwnNoteBlocks] = useState<OwnNoteBlock[]>([
+    { id: "1", type: "heading1", text: "", bold: false, highlight: false },
+  ])
+  const [activeBlockType, setActiveBlockType] = useState<OwnNoteBlock["type"]>("paragraph")
+  const [ownNotesSaving, setOwnNotesSaving] = useState(false)
 
   // Load saved annotations from Supabase
   useEffect(() => {
@@ -140,45 +170,69 @@ export function NotesTab({ notes, lectureId, userId }: NotesTabProps) {
     setSelectedText("")
   }
 
-  const renderNoteContent = (note: { id: string; content: Record<string, unknown> }) => {
-    const raw = typeof note.content === "string" ? note.content : JSON.stringify(note.content, null, 2)
-    const noteHighlights = highlights[note.id] || []
-
-    if (noteHighlights.length === 0) {
-      return <p className="text-sm leading-relaxed text-muted-foreground whitespace-pre-wrap">{raw}</p>
-    }
-
-    let result = raw
-    const parts: { text: string; className?: string }[] = []
-    let remaining = result
-
-    for (const h of noteHighlights) {
-      const idx = remaining.indexOf(h.text)
-      if (idx >= 0) {
-        if (idx > 0) parts.push({ text: remaining.slice(0, idx) })
-        parts.push({ text: h.text, className: h.color })
-        remaining = remaining.slice(idx + h.text.length)
+  // Parse note content into sections for PDF-style rendering
+  const parseNoteContent = (content: Record<string, unknown>) => {
+    if (typeof content === "string") {
+      try {
+        return JSON.parse(content)
+      } catch {
+        return { raw: content }
       }
     }
-    if (remaining) parts.push({ text: remaining })
+    return content
+  }
 
-    return (
-      <p className="text-sm leading-relaxed text-muted-foreground whitespace-pre-wrap">
-        {parts.map((part, i) =>
-          part.className ? (
-            <mark key={i} className={cn("rounded px-0.5", part.className)}>
-              {part.text}
-            </mark>
-          ) : (
-            <span key={i}>{part.text}</span>
-          )
-        )}
-      </p>
-    )
+  const renderNoteContentPDF = (note: { id: string; content: Record<string, unknown> }) => {
+    const parsed = parseNoteContent(note.content)
+    const noteHighlights = highlights[note.id] || []
+
+    const applyHighlights = (text: string) => {
+      if (noteHighlights.length === 0) return <span>{text}</span>
+      const parts: { text: string; className?: string }[] = []
+      let remaining = text
+      for (const h of noteHighlights) {
+        const idx = remaining.indexOf(h.text)
+        if (idx >= 0) {
+          if (idx > 0) parts.push({ text: remaining.slice(0, idx) })
+          parts.push({ text: h.text, className: h.color })
+          remaining = remaining.slice(idx + h.text.length)
+        }
+      }
+      if (remaining) parts.push({ text: remaining })
+      return (
+        <>
+          {parts.map((part, i) =>
+            part.className ? (
+              <mark key={i} className={cn("rounded px-0.5", part.className)}>{part.text}</mark>
+            ) : (
+              <span key={i}>{part.text}</span>
+            )
+          )}
+        </>
+      )
+    }
+
+    // If the content has sections (our standard format)
+    if (parsed.sections && Array.isArray(parsed.sections)) {
+      return (
+        <div className="flex flex-col gap-4">
+          {parsed.sections.map((section: { heading: string; body: string }, i: number) => (
+            <div key={i} className="flex flex-col gap-1.5">
+              <h3 className="text-sm font-semibold text-foreground">{applyHighlights(section.heading)}</h3>
+              <p className="text-sm leading-relaxed text-muted-foreground">{applyHighlights(section.body)}</p>
+            </div>
+          ))}
+        </div>
+      )
+    }
+
+    // Fallback: raw text
+    const raw = typeof note.content === "string" ? note.content : JSON.stringify(note.content, null, 2)
+    return <p className="text-sm leading-relaxed text-muted-foreground whitespace-pre-wrap">{applyHighlights(raw)}</p>
   }
 
   const handleAiAction = async (action: string, text?: string) => {
-    const inputText = text || userNote
+    const inputText = text || ""
     if (!inputText.trim()) return
     setAiLoading(true)
     setAiAction(action)
@@ -196,6 +250,43 @@ export function NotesTab({ notes, lectureId, userId }: NotesTabProps) {
       setAiLoading(false)
       setAiAction(null)
     }
+  }
+
+  // Own notes editor functions
+  const addBlock = () => {
+    const newBlock: OwnNoteBlock = {
+      id: Date.now().toString(),
+      type: activeBlockType,
+      text: "",
+      bold: false,
+      highlight: false,
+    }
+    setOwnNoteBlocks([...ownNoteBlocks, newBlock])
+  }
+
+  const updateBlock = (id: string, updates: Partial<OwnNoteBlock>) => {
+    setOwnNoteBlocks(ownNoteBlocks.map((b) => (b.id === id ? { ...b, ...updates } : b)))
+  }
+
+  const removeBlock = (id: string) => {
+    if (ownNoteBlocks.length <= 1) return
+    setOwnNoteBlocks(ownNoteBlocks.filter((b) => b.id !== id))
+  }
+
+  const saveOwnNotes = async () => {
+    setOwnNotesSaving(true)
+    const supabase = createClient()
+    const content = { blocks: ownNoteBlocks }
+    await supabase.from("notes").insert({
+      lecture_id: lectureId,
+      title: `My Notes - ${new Date().toLocaleDateString()}`,
+      content,
+      order_index: notes.length + 1,
+    })
+    setOwnNotesSaving(false)
+    setShowOwnNotes(false)
+    // Refresh page to show new note
+    window.location.reload()
   }
 
   return (
@@ -230,34 +321,12 @@ export function NotesTab({ notes, lectureId, userId }: NotesTabProps) {
               size="sm"
               variant="outline"
               onClick={() => {
-                if (activeNoteId) {
-                  setAnnotationInput({ noteId: activeNoteId, text: selectedText })
-                }
+                if (activeNoteId) setAnnotationInput({ noteId: activeNoteId, text: selectedText })
               }}
               className="gap-1.5"
             >
               <BookOpen className="h-3.5 w-3.5" />
-              Annotate
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => handleAiAction("summarize", selectedText)}
-              disabled={aiLoading}
-              className="gap-1.5"
-            >
-              <Sparkles className="h-3.5 w-3.5" />
-              AI Summarize
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => handleAiAction("simplify", selectedText)}
-              disabled={aiLoading}
-              className="gap-1.5"
-            >
-              <Sparkles className="h-3.5 w-3.5" />
-              AI Simplify
+              Comment
             </Button>
             <Button
               size="sm"
@@ -267,7 +336,17 @@ export function NotesTab({ notes, lectureId, userId }: NotesTabProps) {
               className="gap-1.5"
             >
               <Sparkles className="h-3.5 w-3.5" />
-              AI Explain
+              Explain
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => handleAiAction("simplify", selectedText)}
+              disabled={aiLoading}
+              className="gap-1.5"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              Simplify
             </Button>
           </CardContent>
         </Card>
@@ -278,10 +357,10 @@ export function NotesTab({ notes, lectureId, userId }: NotesTabProps) {
         <Card className="border-primary/30">
           <CardContent className="flex flex-col gap-3 py-4">
             <p className="text-xs text-muted-foreground">
-              Add annotation for: <strong>{'"'}{annotationInput.text.slice(0, 80)}{'"'}</strong>
+              Add comment for: <strong>{'"'}{annotationInput.text.slice(0, 80)}{'"'}</strong>
             </p>
             <Textarea
-              placeholder="Write your annotation..."
+              placeholder="Write your comment..."
               value={annotationText}
               onChange={(e) => setAnnotationText(e.target.value)}
               className="min-h-[80px]"
@@ -289,16 +368,9 @@ export function NotesTab({ notes, lectureId, userId }: NotesTabProps) {
             <div className="flex gap-2">
               <Button size="sm" onClick={addAnnotation} disabled={!annotationText.trim()}>
                 <Save className="mr-1 h-3.5 w-3.5" />
-                Save Annotation
+                Save
               </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => {
-                  setAnnotationInput(null)
-                  setAnnotationText("")
-                }}
-              >
+              <Button size="sm" variant="ghost" onClick={() => { setAnnotationInput(null); setAnnotationText("") }}>
                 Cancel
               </Button>
             </div>
@@ -306,130 +378,250 @@ export function NotesTab({ notes, lectureId, userId }: NotesTabProps) {
         </Card>
       )}
 
-      {/* Existing lecture notes */}
-      {notes.length > 0 ? (
-        notes.map((note) => (
-          <Card key={note.id}>
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <FileText className="h-4 w-4 text-primary" />
-                {note.title}
-                {(highlights[note.id]?.length ?? 0) > 0 && (
-                  <Badge variant="secondary" className="ml-auto text-[10px]">
-                    {highlights[note.id].length} highlights
-                  </Badge>
-                )}
-                {saving && activeNoteId === note.id && (
-                  <Loader2 className="ml-1 h-3 w-3 animate-spin text-muted-foreground" />
-                )}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div
-                className="prose prose-sm dark:prose-invert max-w-none cursor-text"
-                onMouseUp={() => handleTextSelection(note.id)}
-              >
-                {renderNoteContent(note)}
-              </div>
+      {/* AI Output */}
+      {aiOutput && (
+        <Card className="border-primary/20">
+          <CardContent className="flex flex-col gap-2 py-4">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-medium text-primary">AI Response</p>
+              <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => setAiOutput("")}>
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+            <p className="whitespace-pre-wrap text-sm leading-relaxed">{aiOutput}</p>
+          </CardContent>
+        </Card>
+      )}
 
-              {/* Annotations for this note */}
-              {(annotations[note.id]?.length ?? 0) > 0 && (
-                <div className="mt-4 flex flex-col gap-2">
-                  <p className="text-xs font-medium text-primary">Your Annotations</p>
-                  {annotations[note.id].map((ann, i) => (
-                    <div key={i} className="rounded-lg border bg-muted/50 p-3">
-                      <p className="text-xs text-muted-foreground">
-                        On: {'"'}{ann.text.slice(0, 60)}{ann.text.length > 60 ? "..." : ""}{'"'}
-                      </p>
-                      <p className="mt-1 text-sm leading-relaxed">{ann.note}</p>
-                    </div>
-                  ))}
+      {/* Add own notes button */}
+      {!showOwnNotes && (
+        <Button
+          variant="outline"
+          onClick={() => setShowOwnNotes(true)}
+          className="gap-2 self-start"
+        >
+          <Plus className="h-4 w-4" />
+          Add Your Own Notes
+        </Button>
+      )}
+
+      {/* Own notes editor */}
+      {showOwnNotes && (
+        <Card className="border-primary/30">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <PenLine className="h-4 w-4 text-primary" />
+                Your Notes
+              </CardTitle>
+              <Button size="sm" variant="ghost" onClick={() => setShowOwnNotes(false)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            {/* Formatting toolbar */}
+            <div className="flex flex-wrap items-center gap-1 rounded-lg border bg-muted/50 p-1.5">
+              <Button
+                size="sm"
+                variant={activeBlockType === "heading1" ? "default" : "ghost"}
+                onClick={() => setActiveBlockType("heading1")}
+                className="h-7 gap-1 px-2 text-xs"
+              >
+                <Heading1 className="h-3.5 w-3.5" />
+                H1
+              </Button>
+              <Button
+                size="sm"
+                variant={activeBlockType === "heading2" ? "default" : "ghost"}
+                onClick={() => setActiveBlockType("heading2")}
+                className="h-7 gap-1 px-2 text-xs"
+              >
+                <Heading2 className="h-3.5 w-3.5" />
+                H2
+              </Button>
+              <Button
+                size="sm"
+                variant={activeBlockType === "paragraph" ? "default" : "ghost"}
+                onClick={() => setActiveBlockType("paragraph")}
+                className="h-7 gap-1 px-2 text-xs"
+              >
+                <Type className="h-3.5 w-3.5" />
+                Text
+              </Button>
+              <Separator orientation="vertical" className="mx-1 h-5" />
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={addBlock}
+                className="h-7 gap-1 px-2 text-xs"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add Block
+              </Button>
+            </div>
+
+            {/* Blocks */}
+            <div className="flex flex-col gap-2">
+              {ownNoteBlocks.map((block) => (
+                <div key={block.id} className="group relative flex items-start gap-2">
+                  <div className="flex-1">
+                    {block.type === "heading1" ? (
+                      <input
+                        type="text"
+                        placeholder="Heading 1..."
+                        value={block.text}
+                        onChange={(e) => updateBlock(block.id, { text: e.target.value })}
+                        className={cn(
+                          "w-full border-none bg-transparent text-xl font-bold outline-none placeholder:text-muted-foreground/50",
+                          block.bold && "font-extrabold",
+                          block.highlight && "bg-yellow-200/60 dark:bg-yellow-500/30"
+                        )}
+                      />
+                    ) : block.type === "heading2" ? (
+                      <input
+                        type="text"
+                        placeholder="Heading 2..."
+                        value={block.text}
+                        onChange={(e) => updateBlock(block.id, { text: e.target.value })}
+                        className={cn(
+                          "w-full border-none bg-transparent text-lg font-semibold outline-none placeholder:text-muted-foreground/50",
+                          block.bold && "font-extrabold",
+                          block.highlight && "bg-yellow-200/60 dark:bg-yellow-500/30"
+                        )}
+                      />
+                    ) : (
+                      <Textarea
+                        placeholder="Write your notes here..."
+                        value={block.text}
+                        onChange={(e) => updateBlock(block.id, { text: e.target.value })}
+                        className={cn(
+                          "min-h-[60px] resize-y border-none bg-transparent text-sm shadow-none focus-visible:ring-0",
+                          block.bold && "font-bold",
+                          block.highlight && "bg-yellow-200/60 dark:bg-yellow-500/30"
+                        )}
+                      />
+                    )}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                    <Button
+                      size="sm"
+                      variant={block.bold ? "default" : "ghost"}
+                      className="h-6 w-6 p-0"
+                      onClick={() => updateBlock(block.id, { bold: !block.bold })}
+                    >
+                      <Bold className="h-3 w-3" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={block.highlight ? "default" : "ghost"}
+                      className="h-6 w-6 p-0"
+                      onClick={() => updateBlock(block.id, { highlight: !block.highlight })}
+                    >
+                      <Highlighter className="h-3 w-3" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                      onClick={() => removeBlock(block.id)}
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
                 </div>
-              )}
-            </CardContent>
-          </Card>
-        ))
+              ))}
+            </div>
+
+            <Button onClick={saveOwnNotes} disabled={ownNotesSaving} className="gap-2 self-end">
+              {ownNotesSaving && <Loader2 className="h-4 w-4 animate-spin" />}
+              <Save className="h-4 w-4" />
+              Save Notes
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Existing lecture notes - PDF style */}
+      {notes.length > 0 ? (
+        notes.map((note) => {
+          const parsed = parseNoteContent(note.content)
+          const isOwnNote = parsed.blocks && Array.isArray(parsed.blocks)
+
+          return (
+            <Card key={note.id} className="overflow-hidden">
+              <CardHeader className="border-b bg-muted/30 pb-3">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <FileText className="h-4 w-4 text-primary" />
+                  {note.title}
+                  {(highlights[note.id]?.length ?? 0) > 0 && (
+                    <Badge variant="secondary" className="ml-auto text-[10px]">
+                      {highlights[note.id].length} highlights
+                    </Badge>
+                  )}
+                  {saving && activeNoteId === note.id && (
+                    <Loader2 className="ml-1 h-3 w-3 animate-spin text-muted-foreground" />
+                  )}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-6">
+                {isOwnNote ? (
+                  // Render own notes blocks
+                  <div className="flex flex-col gap-3">
+                    {parsed.blocks.map((block: OwnNoteBlock, i: number) => (
+                      <div key={i}>
+                        {block.type === "heading1" && (
+                          <h2 className={cn("text-xl font-bold", block.bold && "font-extrabold", block.highlight && "bg-yellow-200/60 dark:bg-yellow-500/30 inline")}>{block.text}</h2>
+                        )}
+                        {block.type === "heading2" && (
+                          <h3 className={cn("text-lg font-semibold", block.bold && "font-extrabold", block.highlight && "bg-yellow-200/60 dark:bg-yellow-500/30 inline")}>{block.text}</h3>
+                        )}
+                        {block.type === "paragraph" && (
+                          <p className={cn("text-sm leading-relaxed text-muted-foreground", block.bold && "font-bold", block.highlight && "bg-yellow-200/60 dark:bg-yellow-500/30 inline")}>{block.text}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  // Render structured lecture notes PDF-style
+                  <div
+                    className="prose prose-sm dark:prose-invert max-w-none cursor-text"
+                    onMouseUp={() => handleTextSelection(note.id)}
+                  >
+                    {renderNoteContentPDF(note)}
+                  </div>
+                )}
+
+                {/* Annotations */}
+                {(annotations[note.id]?.length ?? 0) > 0 && (
+                  <div className="mt-6 border-t pt-4">
+                    <p className="mb-2 text-xs font-medium text-primary">Comments</p>
+                    <div className="flex flex-col gap-2">
+                      {annotations[note.id].map((ann, i) => (
+                        <div key={i} className="rounded-lg border bg-muted/50 p-3">
+                          <p className="text-xs text-muted-foreground">
+                            On: {'"'}{ann.text.slice(0, 60)}{ann.text.length > 60 ? "..." : ""}{'"'}
+                          </p>
+                          <p className="mt-1 text-sm leading-relaxed">{ann.note}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )
+        })
       ) : (
         <Card>
           <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
             <FileText className="h-8 w-8 text-muted-foreground" />
             <p className="text-sm text-muted-foreground">
-              No lecture notes have been added yet.
+              No lecture notes have been added yet. Click "Add Your Own Notes" to get started.
             </p>
           </CardContent>
         </Card>
       )}
-
-      {/* Personal notes with AI */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Sparkles className="h-4 w-4 text-primary" />
-            Your Notes + AI Assistant
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <Textarea
-            placeholder="Write your notes here... then use AI to summarize, simplify, or explain."
-            value={userNote}
-            onChange={(e) => setUserNote(e.target.value)}
-            className="min-h-[120px] resize-y"
-          />
-          <div className="flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => handleAiAction("summarize")}
-              disabled={aiLoading || !userNote.trim()}
-            >
-              {aiLoading && aiAction === "summarize" && (
-                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-              )}
-              Summarize
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => handleAiAction("simplify")}
-              disabled={aiLoading || !userNote.trim()}
-            >
-              {aiLoading && aiAction === "simplify" && (
-                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-              )}
-              Simplify
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => handleAiAction("explain")}
-              disabled={aiLoading || !userNote.trim()}
-            >
-              {aiLoading && aiAction === "explain" && (
-                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-              )}
-              Explain
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => handleAiAction("quiz")}
-              disabled={aiLoading || !userNote.trim()}
-            >
-              {aiLoading && aiAction === "quiz" && (
-                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-              )}
-              Generate Quiz
-            </Button>
-          </div>
-
-          {aiOutput && (
-            <div className="rounded-lg border bg-muted/50 p-4">
-              <p className="mb-2 text-xs font-medium text-primary">AI Response</p>
-              <p className="whitespace-pre-wrap text-sm leading-relaxed">{aiOutput}</p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
     </div>
   )
 }
