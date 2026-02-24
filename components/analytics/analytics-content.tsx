@@ -357,23 +357,21 @@ export function AnalyticsContent({
           <CardContent>
             {flashcardDist.length > 0 ? (
               <div className="flex items-center gap-6">
-                <ResponsiveContainer width={140} height={140}>
-                  <PieChart>
-                    <Pie
-                      data={flashcardDist}
-                      dataKey="value"
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={40}
-                      outerRadius={65}
-                      paddingAngle={2}
-                    >
-                      {flashcardDist.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.fill} />
-                      ))}
-                    </Pie>
-                  </PieChart>
-                </ResponsiveContainer>
+                <PieChart width={140} height={140}>
+                  <Pie
+                    data={flashcardDist}
+                    dataKey="value"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={40}
+                    outerRadius={65}
+                    paddingAngle={2}
+                  >
+                    {flashcardDist.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.fill} />
+                    ))}
+                  </Pie>
+                </PieChart>
                 <div className="flex flex-col gap-2">
                   {flashcardDist.map((d) => (
                     <div key={d.name} className="flex items-center gap-2">
