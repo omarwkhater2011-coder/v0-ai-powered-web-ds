@@ -181,7 +181,7 @@ export function DashboardContent({
         {/* Right sidebar */}
         <div className="flex flex-col gap-6">
           {/* Tasks */}
-          <TaskList initialTasks={tasks} userId={user.id} />
+          <TaskList initialTasks={tasks} userId={user.id} modules={modules} />
 
           {/* Weak Topics */}
           {weakTopics.length > 0 && (

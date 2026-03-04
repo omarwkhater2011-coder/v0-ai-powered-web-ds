@@ -1,9 +1,4 @@
 import { generateText } from "ai"
-import { createGroq } from "@ai-sdk/groq"
-
-const groq = createGroq({
-  apiKey: process.env.GROQ_API_KEY,
-})
 
 const SYSTEM_PROMPTS: Record<string, string> = {
   summarize:
@@ -33,7 +28,7 @@ export async function POST(req: Request) {
     }
 
     const { text: result } = await generateText({
-      model: groq("llama-3.3-70b-versatile"),
+      model: "openai/gpt-4o-mini",
       system: systemPrompt,
       prompt: text,
       maxTokens: 2000,

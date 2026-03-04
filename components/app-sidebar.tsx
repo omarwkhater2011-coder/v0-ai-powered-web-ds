@@ -42,7 +42,7 @@ const mainNav = [
     icon: BookOpen,
   },
   {
-    title: "Flashcards",
+    title: "Exercises",
     url: "/dashboard/flashcards",
     icon: BrainCircuit,
   },
